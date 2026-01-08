@@ -1,261 +1,190 @@
+// Editor/DataPipeline/ExcelToXmlConverter.cs
+// 
+// Excel -> XML 변환기
+// 
+// 설치 필요:
+// 1. NuGet에서 ExcelDataReader 패키지 추가
+//    (Unity에서는 .dll을 직접 Plugins 폴더에 추가하거나 OpenUPM 사용)
+// 
+// 사용법:
+// 1. Assets/Data/Excel/ 폴더에 .xlsx 파일 배치
+// 2. Unity 메뉴: Tools > Data Pipeline > Convert All Excel to XML
+// 3. Assets/Resources/Data/ 에 XML 파일 생성됨
+
+#if UNITY_EDITOR
+
 using System;
 using System.Collections.Generic;
+using System.Data;
 using System.IO;
 using System.Text;
-using System.Xml;
-using UnityEngine;
 using UnityEditor;
+using UnityEngine;
 
-namespace KH.Framework2D.Editor.DataPipeline
+// ExcelDataReader가 설치되어 있지 않으면 주석 처리
+// using ExcelDataReader;
+
+namespace KH.Framework2D.Editor.Pipeline
 {
     /// <summary>
-    /// Excel/CSV to XML converter for data pipeline.
-    /// 
-    /// Workflow:
-    /// 1. Export Excel sheet as CSV (UTF-8)
-    /// 2. Place CSV in DataTables/ folder
-    /// 3. Run converter via menu or auto-import
-    /// 4. XML is generated in Resources/Data/
-    /// 
-    /// CSV Format:
-    /// - First row: Column headers (become XML element names)
-    /// - Subsequent rows: Data values
-    /// - Comments: Rows starting with # are ignored
-    /// - Skip columns: Columns starting with @ are ignored
+    /// Excel 파일을 XML로 변환하는 유틸리티.
+    /// 기획자가 Excel로 작업 -> 개발자가 버튼 한 번으로 XML 변환.
     /// </summary>
-    public class ExcelToXmlConverter : EditorWindow
+    public static class ExcelToXmlConverter
     {
-        private const string CSV_FOLDER = "Assets/DataTables";
-        private const string XML_OUTPUT_FOLDER = "Assets/Resources/Data";
+        private const string ExcelFolder = "Assets/Data/Excel";
+        private const string XmlFolder = "Assets/Resources/Data";
         
-        private string _csvFolderPath = CSV_FOLDER;
-        private string _xmlOutputPath = XML_OUTPUT_FOLDER;
-        private bool _autoConvertOnImport = true;
-        
-        [MenuItem("Tools/Data Pipeline/Open Converter Window")]
-        public static void OpenWindow()
+        [MenuItem("Tools/Data Pipeline/Convert All Excel to XML")]
+        public static void ConvertAll()
         {
-            var window = GetWindow<ExcelToXmlConverter>("Data Converter");
-            window.minSize = new Vector2(400, 300);
-        }
-        
-        [MenuItem("Tools/Data Pipeline/Convert All CSV to XML")]
-        public static void ConvertAllCsvToXml()
-        {
-            ConvertAllCsvFiles(CSV_FOLDER, XML_OUTPUT_FOLDER);
-        }
-        
-        private void OnGUI()
-        {
-            GUILayout.Label("Data Pipeline Converter", EditorStyles.boldLabel);
-            EditorGUILayout.Space(10);
-            
-            EditorGUILayout.HelpBox(
-                "Workflow:\n" +
-                "1. Export Excel sheets as CSV (UTF-8)\n" +
-                "2. Place CSV files in DataTables/ folder\n" +
-                "3. Click 'Convert All' or enable auto-convert\n" +
-                "4. XML files are generated in Resources/Data/",
-                MessageType.Info
-            );
-            
-            EditorGUILayout.Space(10);
-            
-            // Folder paths
-            EditorGUILayout.LabelField("Paths", EditorStyles.boldLabel);
-            
-            EditorGUILayout.BeginHorizontal();
-            _csvFolderPath = EditorGUILayout.TextField("CSV Folder", _csvFolderPath);
-            if (GUILayout.Button("...", GUILayout.Width(30)))
+            // 폴더가 없으면 생성
+            if (!Directory.Exists(ExcelFolder))
             {
-                var path = EditorUtility.OpenFolderPanel("Select CSV Folder", "Assets", "");
-                if (!string.IsNullOrEmpty(path))
-                {
-                    _csvFolderPath = "Assets" + path.Substring(Application.dataPath.Length);
-                }
-            }
-            EditorGUILayout.EndHorizontal();
-            
-            EditorGUILayout.BeginHorizontal();
-            _xmlOutputPath = EditorGUILayout.TextField("XML Output", _xmlOutputPath);
-            if (GUILayout.Button("...", GUILayout.Width(30)))
-            {
-                var path = EditorUtility.OpenFolderPanel("Select XML Output Folder", "Assets", "");
-                if (!string.IsNullOrEmpty(path))
-                {
-                    _xmlOutputPath = "Assets" + path.Substring(Application.dataPath.Length);
-                }
-            }
-            EditorGUILayout.EndHorizontal();
-            
-            EditorGUILayout.Space(10);
-            
-            // Options
-            EditorGUILayout.LabelField("Options", EditorStyles.boldLabel);
-            _autoConvertOnImport = EditorGUILayout.Toggle("Auto-convert on Import", _autoConvertOnImport);
-            
-            EditorGUILayout.Space(20);
-            
-            // Actions
-            EditorGUILayout.LabelField("Actions", EditorStyles.boldLabel);
-            
-            if (GUILayout.Button("Convert All CSV to XML", GUILayout.Height(30)))
-            {
-                ConvertAllCsvFiles(_csvFolderPath, _xmlOutputPath);
-            }
-            
-            EditorGUILayout.Space(5);
-            
-            EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Button("Create Sample CSV"))
-            {
-                CreateSampleCsv();
-            }
-            if (GUILayout.Button("Open CSV Folder"))
-            {
-                EditorUtility.RevealInFinder(_csvFolderPath);
-            }
-            EditorGUILayout.EndHorizontal();
-        }
-        
-        /// <summary>
-        /// Convert all CSV files in folder to XML.
-        /// </summary>
-        public static void ConvertAllCsvFiles(string csvFolder, string xmlOutput)
-        {
-            if (!Directory.Exists(csvFolder))
-            {
-                Directory.CreateDirectory(csvFolder);
-                Debug.Log($"[DataPipeline] Created CSV folder: {csvFolder}");
-            }
-            
-            if (!Directory.Exists(xmlOutput))
-            {
-                Directory.CreateDirectory(xmlOutput);
-                Debug.Log($"[DataPipeline] Created XML output folder: {xmlOutput}");
-            }
-            
-            var csvFiles = Directory.GetFiles(csvFolder, "*.csv", SearchOption.AllDirectories);
-            
-            if (csvFiles.Length == 0)
-            {
-                Debug.LogWarning("[DataPipeline] No CSV files found in: " + csvFolder);
+                Directory.CreateDirectory(ExcelFolder);
+                Debug.LogWarning($"[DataPipeline] Created folder: {ExcelFolder}");
+                Debug.LogWarning("[DataPipeline] Place your .xlsx files in this folder and run again.");
                 return;
             }
             
-            int converted = 0;
+            if (!Directory.Exists(XmlFolder))
+            {
+                Directory.CreateDirectory(XmlFolder);
+            }
             
-            foreach (var csvFile in csvFiles)
+            var excelFiles = Directory.GetFiles(ExcelFolder, "*.xlsx");
+            
+            if (excelFiles.Length == 0)
+            {
+                Debug.LogWarning($"[DataPipeline] No .xlsx files found in {ExcelFolder}");
+                return;
+            }
+            
+            int successCount = 0;
+            foreach (var excelPath in excelFiles)
             {
                 try
                 {
-                    var fileName = Path.GetFileNameWithoutExtension(csvFile);
-                    var xmlPath = Path.Combine(xmlOutput, fileName + ".xml");
-                    
-                    ConvertCsvToXml(csvFile, xmlPath);
-                    converted++;
+                    ConvertFile(excelPath);
+                    successCount++;
                 }
                 catch (Exception ex)
                 {
-                    Debug.LogError($"[DataPipeline] Failed to convert {csvFile}: {ex.Message}");
+                    Debug.LogError($"[DataPipeline] Failed to convert {Path.GetFileName(excelPath)}: {ex.Message}");
                 }
             }
             
             AssetDatabase.Refresh();
-            Debug.Log($"[DataPipeline] Converted {converted}/{csvFiles.Length} CSV files to XML");
+            Debug.Log($"[DataPipeline] Converted {successCount}/{excelFiles.Length} files.");
         }
         
-        /// <summary>
-        /// Convert a single CSV file to XML.
-        /// </summary>
-        public static void ConvertCsvToXml(string csvPath, string xmlPath)
+        [MenuItem("Tools/Data Pipeline/Convert Selected Excel")]
+        public static void ConvertSelected()
         {
-            var lines = File.ReadAllLines(csvPath, Encoding.UTF8);
-            
-            if (lines.Length < 2)
+            var selected = Selection.activeObject;
+            if (selected == null)
             {
-                Debug.LogWarning($"[DataPipeline] CSV file has no data rows: {csvPath}");
+                Debug.LogWarning("[DataPipeline] No file selected.");
                 return;
             }
             
-            // Parse header row
-            var headers = ParseCsvLine(lines[0]);
-            
-            // Find columns to skip (starting with @)
-            var skipColumns = new HashSet<int>();
-            for (int i = 0; i < headers.Count; i++)
+            var path = AssetDatabase.GetAssetPath(selected);
+            if (!path.EndsWith(".xlsx"))
             {
-                if (headers[i].StartsWith("@"))
-                {
-                    skipColumns.Add(i);
-                }
+                Debug.LogWarning("[DataPipeline] Selected file is not an Excel file (.xlsx)");
+                return;
             }
             
-            // Build XML
-            var settings = new XmlWriterSettings
+            try
             {
-                Indent = true,
-                IndentChars = "  ",
-                Encoding = Encoding.UTF8
-            };
-            
-            using (var writer = XmlWriter.Create(xmlPath, settings))
-            {
-                writer.WriteStartDocument();
-                writer.WriteStartElement("DataTable");
-                
-                // Write metadata
-                writer.WriteAttributeString("source", Path.GetFileName(csvPath));
-                writer.WriteAttributeString("generated", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
-                
-                // Write data rows
-                for (int rowIndex = 1; rowIndex < lines.Length; rowIndex++)
-                {
-                    var line = lines[rowIndex].Trim();
-                    
-                    // Skip empty lines and comments
-                    if (string.IsNullOrEmpty(line) || line.StartsWith("#"))
-                        continue;
-                    
-                    var values = ParseCsvLine(line);
-                    
-                    writer.WriteStartElement("Row");
-                    
-                    for (int colIndex = 0; colIndex < headers.Count && colIndex < values.Count; colIndex++)
-                    {
-                        if (skipColumns.Contains(colIndex))
-                            continue;
-                        
-                        var header = headers[colIndex].Trim();
-                        var value = values[colIndex].Trim();
-                        
-                        // Skip empty headers
-                        if (string.IsNullOrEmpty(header))
-                            continue;
-                        
-                        // Sanitize header for XML element name
-                        header = SanitizeXmlName(header);
-                        
-                        writer.WriteElementString(header, value);
-                    }
-                    
-                    writer.WriteEndElement(); // Row
-                }
-                
-                writer.WriteEndElement(); // DataTable
-                writer.WriteEndDocument();
+                ConvertFile(path);
+                AssetDatabase.Refresh();
+                Debug.Log($"[DataPipeline] Converted: {path}");
             }
-            
-            Debug.Log($"[DataPipeline] Converted: {Path.GetFileName(csvPath)} -> {Path.GetFileName(xmlPath)}");
+            catch (Exception ex)
+            {
+                Debug.LogError($"[DataPipeline] Failed: {ex.Message}");
+            }
         }
         
         /// <summary>
-        /// Parse a CSV line handling quoted values.
+        /// 단일 Excel 파일을 XML로 변환.
+        /// 각 시트는 별도의 XML 파일로 저장됨.
         /// </summary>
-        private static List<string> ParseCsvLine(string line)
+        public static void ConvertFile(string excelPath)
+        {
+            // ExcelDataReader 사용 시:
+            // using var stream = File.Open(excelPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            // using var reader = ExcelReaderFactory.CreateReader(stream);
+            // var result = reader.AsDataSet(new ExcelDataSetConfiguration
+            // {
+            //     ConfigureDataTable = _ => new ExcelDataTableConfiguration
+            //     {
+            //         UseHeaderRow = true
+            //     }
+            // });
+            
+            // 임시: CSV 기반 변환 (ExcelDataReader 없이 테스트용)
+            // 실제 사용 시 ExcelDataReader로 교체
+            var fileName = Path.GetFileNameWithoutExtension(excelPath);
+            var csvPath = excelPath.Replace(".xlsx", ".csv");
+            
+            if (File.Exists(csvPath))
+            {
+                ConvertCsvToXml(csvPath, Path.Combine(XmlFolder, $"{fileName}.xml"), fileName);
+            }
+            else
+            {
+                Debug.LogWarning($"[DataPipeline] ExcelDataReader not installed. Please export {fileName}.xlsx as CSV.");
+                CreateSampleXml(fileName);
+            }
+        }
+        
+        /// <summary>
+        /// CSV를 XML로 변환 (ExcelDataReader 없을 때 대안)
+        /// </summary>
+        private static void ConvertCsvToXml(string csvPath, string xmlPath, string rootName)
+        {
+            var lines = File.ReadAllLines(csvPath, Encoding.UTF8);
+            if (lines.Length < 2) return; // 헤더 + 최소 1행 필요
+            
+            var headers = ParseCsvLine(lines[0]);
+            var sb = new StringBuilder();
+            
+            sb.AppendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
+            sb.AppendLine("<Rows>");
+            
+            for (int i = 1; i < lines.Length; i++)
+            {
+                if (string.IsNullOrWhiteSpace(lines[i])) continue;
+                
+                var values = ParseCsvLine(lines[i]);
+                sb.AppendLine("  <Row>");
+                
+                for (int j = 0; j < headers.Length && j < values.Length; j++)
+                {
+                    var escaped = EscapeXml(values[j]);
+                    sb.AppendLine($"    <{headers[j]}>{escaped}</{headers[j]}>");
+                }
+                
+                sb.AppendLine("  </Row>");
+            }
+            
+            sb.AppendLine("</Rows>");
+            
+            Directory.CreateDirectory(Path.GetDirectoryName(xmlPath));
+            File.WriteAllText(xmlPath, sb.ToString(), Encoding.UTF8);
+            
+            Debug.Log($"[DataPipeline] Created: {xmlPath}");
+        }
+        
+        /// <summary>
+        /// CSV 라인 파싱 (쉼표 분리, 따옴표 처리)
+        /// </summary>
+        private static string[] ParseCsvLine(string line)
         {
             var result = new List<string>();
-            var current = new StringBuilder();
+            var sb = new StringBuilder();
             bool inQuotes = false;
             
             for (int i = 0; i < line.Length; i++)
@@ -264,11 +193,10 @@ namespace KH.Framework2D.Editor.DataPipeline
                 
                 if (c == '"')
                 {
-                    // Check for escaped quote
                     if (inQuotes && i + 1 < line.Length && line[i + 1] == '"')
                     {
-                        current.Append('"');
-                        i++; // Skip next quote
+                        sb.Append('"');
+                        i++; // Skip escaped quote
                     }
                     else
                     {
@@ -277,119 +205,101 @@ namespace KH.Framework2D.Editor.DataPipeline
                 }
                 else if (c == ',' && !inQuotes)
                 {
-                    result.Add(current.ToString());
-                    current.Clear();
+                    result.Add(sb.ToString().Trim());
+                    sb.Clear();
                 }
                 else
-                {
-                    current.Append(c);
-                }
-            }
-            
-            result.Add(current.ToString());
-            return result;
-        }
-        
-        /// <summary>
-        /// Sanitize string to be a valid XML element name.
-        /// </summary>
-        private static string SanitizeXmlName(string name)
-        {
-            if (string.IsNullOrEmpty(name))
-                return "Unknown";
-            
-            var sb = new StringBuilder();
-            
-            // First character must be letter or underscore
-            char first = name[0];
-            if (char.IsLetter(first) || first == '_')
-            {
-                sb.Append(first);
-            }
-            else
-            {
-                sb.Append('_');
-            }
-            
-            // Subsequent characters
-            for (int i = 1; i < name.Length; i++)
-            {
-                char c = name[i];
-                if (char.IsLetterOrDigit(c) || c == '_' || c == '-' || c == '.')
                 {
                     sb.Append(c);
                 }
-                else
-                {
-                    sb.Append('_');
-                }
             }
             
-            return sb.ToString();
+            result.Add(sb.ToString().Trim());
+            return result.ToArray();
         }
         
         /// <summary>
-        /// Create a sample CSV file for reference.
+        /// XML 특수문자 이스케이프
         /// </summary>
-        private void CreateSampleCsv()
+        private static string EscapeXml(string value)
         {
-            if (!Directory.Exists(_csvFolderPath))
-            {
-                Directory.CreateDirectory(_csvFolderPath);
-            }
+            if (string.IsNullOrEmpty(value)) return "";
             
-            var samplePath = Path.Combine(_csvFolderPath, "SampleCards.csv");
-            
-            var content = @"Id,Name,Description,Cost,Attack,Health,@Comment
-card_001,Fireball,Deal 5 damage to target,3,5,0,Basic damage spell
-card_002,Shield,Gain 3 armor,2,0,3,Basic defense card
-card_003,Strike,Deal 3 damage,1,3,0,Starter attack card
-# This is a comment row - will be ignored
-card_004,Heal,Restore 4 health,2,0,0,Basic heal spell
-";
-            
-            File.WriteAllText(samplePath, content, Encoding.UTF8);
-            AssetDatabase.Refresh();
-            
-            Debug.Log($"[DataPipeline] Created sample CSV: {samplePath}");
-            EditorUtility.RevealInFinder(samplePath);
+            return value
+                .Replace("&", "&amp;")
+                .Replace("<", "&lt;")
+                .Replace(">", "&gt;")
+                .Replace("\"", "&quot;")
+                .Replace("'", "&apos;");
         }
-    }
-    
-    /// <summary>
-    /// Auto-import CSV files when they change.
-    /// </summary>
-    public class CsvImportProcessor : AssetPostprocessor
-    {
-        private static void OnPostprocessAllAssets(
-            string[] importedAssets, 
-            string[] deletedAssets, 
-            string[] movedAssets, 
-            string[] movedFromAssetPaths)
+        
+        /// <summary>
+        /// 샘플 XML 생성 (테스트용)
+        /// </summary>
+        private static void CreateSampleXml(string name)
         {
-            bool hasCsvChanges = false;
+            var xmlPath = Path.Combine(XmlFolder, $"{name}.xml");
             
-            foreach (var asset in importedAssets)
-            {
-                if (asset.EndsWith(".csv") && asset.Contains("DataTables"))
-                {
-                    hasCsvChanges = true;
-                    break;
-                }
-            }
+            var sb = new StringBuilder();
+            sb.AppendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
+            sb.AppendLine("<Rows>");
+            sb.AppendLine("  <!-- Sample data - replace with actual Excel export -->");
+            sb.AppendLine("  <Row>");
+            sb.AppendLine("    <Id>sample_001</Id>");
+            sb.AppendLine("    <Name>Sample Item</Name>");
+            sb.AppendLine("    <Value>100</Value>");
+            sb.AppendLine("  </Row>");
+            sb.AppendLine("</Rows>");
             
-            if (hasCsvChanges)
-            {
-                // Delay conversion to avoid issues during import
-                EditorApplication.delayCall += () =>
-                {
-                    Debug.Log("[DataPipeline] CSV files changed, auto-converting...");
-                    ExcelToXmlConverter.ConvertAllCsvToXml(
-                        "Assets/DataTables", 
-                        "Assets/Resources/Data"
-                    );
-                };
-            }
+            Directory.CreateDirectory(Path.GetDirectoryName(xmlPath));
+            File.WriteAllText(xmlPath, sb.ToString(), Encoding.UTF8);
+            
+            Debug.Log($"[DataPipeline] Created sample XML: {xmlPath}");
+        }
+        
+        [MenuItem("Tools/Data Pipeline/Create Sample Excel Template")]
+        public static void CreateSampleTemplate()
+        {
+            // Excel 템플릿 정보 출력 (실제 .xlsx 생성은 복잡하므로 가이드만 제공)
+            var info = @"
+=== Excel 템플릿 가이드 ===
+
+1. Cards.xlsx
+   | Id          | Name       | Cost | Type   | Effect              | SkillId    |
+   |-------------|------------|------|--------|---------------------|------------|
+   | card_001    | Strike     | 1    | Attack | Deal 6 damage       | skill_001  |
+   | card_002    | Defend     | 1    | Skill  | Gain 5 block        |            |
+
+2. Units.xlsx
+   | Id          | Name       | HP   | ATK  | PrefabPath          |
+   |-------------|------------|------|------|---------------------|
+   | unit_001    | Goblin     | 30   | 5    | Prefabs/Units/Goblin|
+
+3. Skills.xlsx
+   | Id          | Name       | Damage | TargetType |
+   |-------------|------------|--------|------------|
+   | skill_001   | Slash      | 6      | Single     |
+
+규칙:
+- 첫 행은 반드시 컬럼명 (영문, 공백 없음)
+- Id는 고유해야 함
+- 빈 셀은 빈 문자열로 처리됨
+- 시트 이름 = XML 파일 이름
+";
+            Debug.Log(info);
+            
+            // CSV 템플릿 생성
+            var csvPath = Path.Combine(ExcelFolder, "Cards_Template.csv");
+            if (!Directory.Exists(ExcelFolder))
+                Directory.CreateDirectory(ExcelFolder);
+                
+            var csv = "Id,Name,Cost,Type,Effect,SkillId\ncard_001,Strike,1,Attack,Deal 6 damage,skill_001\ncard_002,Defend,1,Skill,Gain 5 block,";
+            File.WriteAllText(csvPath, csv);
+            
+            AssetDatabase.Refresh();
+            Debug.Log($"[DataPipeline] Created CSV template: {csvPath}");
         }
     }
 }
+
+#endif

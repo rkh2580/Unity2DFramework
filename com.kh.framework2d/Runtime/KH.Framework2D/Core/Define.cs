@@ -1,15 +1,15 @@
 namespace KH.Framework2D
 {
     /// <summary>
-    /// 프레임워크 전역 열거형 및 상수 정의.
-    /// 모든 공통 타입을 중앙에서 관리하여 일관성 유지.
+    /// Framework-wide enumerations and constants.
+    /// Central location for all type definitions to prevent scattering.
     /// </summary>
     public static class Define
     {
         #region Scene
-
+        
         /// <summary>
-        /// 씬 타입 열거형. 프로젝트에 맞게 확장 가능.
+        /// Scene types for type-safe scene loading.
         /// </summary>
         public enum Scene
         {
@@ -18,15 +18,18 @@ namespace KH.Framework2D
             Login,
             Lobby,
             Game,
+            Battle,
             Loading,
+            Shop,
+            Inventory,
         }
-
+        
         #endregion
-
+        
         #region UI
-
+        
         /// <summary>
-        /// UI 이벤트 타입.
+        /// UI event types for event binding.
         /// </summary>
         public enum UIEvent
         {
@@ -39,39 +42,59 @@ namespace KH.Framework2D
             PointerDown,
             PointerUp,
         }
-
+        
         #endregion
-
+        
         #region Input
-
+        
         /// <summary>
-        /// 마우스 이벤트 타입.
+        /// Mouse event types.
         /// </summary>
         public enum MouseEvent
         {
-            Press,       // 누르고 있는 중
-            Click,       // 클릭 (눌렀다 뗌)
-            PointerDown, // 누르는 순간
-            PointerUp,   // 떼는 순간
+            Press,      // Held down
+            Click,      // Press and release
+            PointerDown,// Just pressed
+            PointerUp,  // Just released
         }
-
+        
         /// <summary>
-        /// 입력 모드.
+        /// Input mode for context-aware input handling.
+        /// Controls how InputManager interprets inputs (e.g., Escape key behavior).
         /// </summary>
         public enum InputMode
         {
+            /// <summary>
+            /// Normal gameplay - player controls character.
+            /// Escape = Pause menu.
+            /// </summary>
             Gameplay,
+            
+            /// <summary>
+            /// UI is active (popup, menu, etc.).
+            /// Escape = Cancel/Close.
+            /// </summary>
             UI,
+            
+            /// <summary>
+            /// Cutscene or cinematic playing.
+            /// Most inputs disabled or limited.
+            /// </summary>
             Cinematic,
+            
+            /// <summary>
+            /// All input disabled.
+            /// Used during loading, transitions, etc.
+            /// </summary>
             Disabled,
         }
-
+        
         #endregion
-
+        
         #region Sound
-
+        
         /// <summary>
-        /// 사운드 타입.
+        /// Sound channel types.
         /// </summary>
         public enum Sound
         {
@@ -79,15 +102,16 @@ namespace KH.Framework2D
             Effect,
             Voice,
             UI,
-            MaxCount, // 개수 확인용
+            MaxCount, // For array sizing
         }
-
+        
         #endregion
-
-        #region Layer (프로젝트에 맞게 수정)
-
+        
+        #region Layer
+        
         /// <summary>
-        /// 레이어 상수. Unity Layer 설정과 일치해야 함.
+        /// Physics layer constants.
+        /// Must match Unity's Layer settings.
         /// </summary>
         public static class Layer
         {
@@ -100,111 +124,70 @@ namespace KH.Framework2D
             public const int Player = 7;
             public const int Enemy = 8;
             public const int Projectile = 9;
-            public const int Interactable = 10;
-            public const int Item = 11;
-
-            // LayerMask 헬퍼
+            public const int Item = 10;
+            public const int Obstacle = 11;
+            
+            // Layer masks for physics queries
             public static int GroundMask => 1 << Ground;
             public static int EnemyMask => 1 << Enemy;
             public static int PlayerMask => 1 << Player;
-            public static int ProjectileMask => 1 << Projectile;
-            public static int InteractableMask => 1 << Interactable;
-            public static int ItemMask => 1 << Item;
-            
-            // 복합 마스크
-            public static int AllEnemiesMask => EnemyMask;
             public static int AllCharactersMask => PlayerMask | EnemyMask;
         }
-
+        
         #endregion
-
-        #region Tag (프로젝트에 맞게 수정)
-
+        
+        #region Tag
+        
         /// <summary>
-        /// 태그 상수. Unity Tag 설정과 일치해야 함.
+        /// Tag constants.
+        /// Must match Unity's Tag settings.
         /// </summary>
         public static class Tag
         {
             public const string Untagged = "Untagged";
-            public const string Respawn = "Respawn";
-            public const string Finish = "Finish";
-            public const string EditorOnly = "EditorOnly";
-            public const string MainCamera = "MainCamera";
             public const string Player = "Player";
-            public const string GameController = "GameController";
             public const string Enemy = "Enemy";
             public const string Item = "Item";
             public const string Ground = "Ground";
-            public const string Interactable = "Interactable";
+            public const string Projectile = "Projectile";
+            public const string Trigger = "Trigger";
         }
-
+        
         #endregion
-
+        
         #region Sorting Layer
-
+        
         /// <summary>
-        /// Sorting Layer 이름 상수.
+        /// Sorting layer names for 2D rendering order.
         /// </summary>
         public static class SortingLayer
         {
             public const string Background = "Background";
             public const string Default = "Default";
-            public const string Midground = "Midground";
+            public const string Character = "Character";
             public const string Foreground = "Foreground";
+            public const string Effect = "Effect";
             public const string UI = "UI";
-            public const string Overlay = "Overlay";
         }
-
+        
         #endregion
-
-        #region Animation
-
-        /// <summary>
-        /// 애니메이션 파라미터 이름 상수.
-        /// </summary>
-        public static class AnimParam
-        {
-            // Bool
-            public const string IsMoving = "IsMoving";
-            public const string IsGrounded = "IsGrounded";
-            public const string IsAttacking = "IsAttacking";
-            public const string IsDead = "IsDead";
-            
-            // Trigger
-            public const string Attack = "Attack";
-            public const string Jump = "Jump";
-            public const string Hit = "Hit";
-            public const string Die = "Die";
-            
-            // Float
-            public const string Speed = "Speed";
-            public const string VelocityX = "VelocityX";
-            public const string VelocityY = "VelocityY";
-            
-            // Int
-            public const string AttackCombo = "AttackCombo";
-        }
-
-        #endregion
-
+        
         #region Resource Paths
-
+        
         /// <summary>
-        /// Resources 폴더 경로 상수.
+        /// Resource path constants.
         /// </summary>
         public static class Path
         {
             public const string Prefabs = "Prefabs";
             public const string UI = "Prefabs/UI";
-            public const string UIPopup = "Prefabs/UI/Popup";
-            public const string UIScene = "Prefabs/UI/Scene";
+            public const string Popup = "Prefabs/UI/Popup";
+            public const string SceneUI = "Prefabs/UI/Scene";
             public const string Effects = "Prefabs/Effects";
-            public const string Characters = "Prefabs/Characters";
-            public const string Audio = "Audio";
-            public const string BGM = "Audio/BGM";
-            public const string SFX = "Audio/SFX";
+            public const string Units = "Prefabs/Units";
+            public const string Data = "Data";
         }
-
+        
         #endregion
     }
 }
