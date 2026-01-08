@@ -1,0 +1,20 @@
+{
+  "name": "KH.Framework2D.Samples.Demo",
+  "rootNamespace": "KH.Framework2D.Samples.Demo",
+  "references": [
+    "KH.Framework2D",
+    "VContainer",
+    "UniTask",
+    "DOTween.Modules",
+    "Unity.TextMeshPro"
+  ],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": false,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}
