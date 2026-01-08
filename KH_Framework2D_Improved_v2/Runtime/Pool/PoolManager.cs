@@ -30,7 +30,9 @@ namespace KH.Framework2D.Pool
     /// <summary>
     /// Central manager for multiple object pools.
     /// 
-    /// [FIXED] async void Start replaced with UniTaskVoid + proper error handling.
+    /// [FIXED v2]
+    /// - async void Start replaced with UniTaskVoid + proper error handling
+    /// - IsWarmedUp is now set correctly even when warmup is disabled
     /// </summary>
     public class PoolManager : MonoBehaviour
     {
@@ -41,14 +43,20 @@ namespace KH.Framework2D.Pool
         private Transform _poolRoot;
         
         /// <summary>
-        /// Event fired when pool warmup is complete.
+        /// Event fired when pool warmup is complete (or skipped).
         /// </summary>
         public event Action OnWarmUpComplete;
         
         /// <summary>
-        /// Is warmup complete?
+        /// Is warmup complete (or skipped)?
+        /// Always check this before using pools if you need warmup.
         /// </summary>
         public bool IsWarmedUp { get; private set; }
+        
+        /// <summary>
+        /// Did warmup complete successfully? False if warmup failed or was skipped.
+        /// </summary>
+        public bool WarmUpSucceeded { get; private set; }
         
         private void Awake()
         {
@@ -65,13 +73,21 @@ namespace KH.Framework2D.Pool
         }
         
         /// <summary>
-        /// [FIXED] Using UniTaskVoid instead of async void for proper exception propagation.
+        /// [FIXED v2] Properly sets IsWarmedUp even when warmup is disabled.
         /// </summary>
         private void Start()
         {
             if (_warmUpOnStart)
             {
                 WarmUpOnStartAsync().Forget();
+            }
+            else
+            {
+                // [FIXED] Mark as ready immediately when warmup is disabled
+                IsWarmedUp = true;
+                WarmUpSucceeded = false; // Not a failure, just skipped
+                OnWarmUpComplete?.Invoke();
+                Debug.Log("[PoolManager] Ready (warmup disabled).");
             }
         }
         
@@ -84,6 +100,7 @@ namespace KH.Framework2D.Pool
             {
                 await WarmUpAllAsync();
                 IsWarmedUp = true;
+                WarmUpSucceeded = true;
                 OnWarmUpComplete?.Invoke();
                 Debug.Log("[PoolManager] Warmup complete.");
             }
@@ -92,6 +109,7 @@ namespace KH.Framework2D.Pool
                 // Log error but don't crash - pools can still work without warmup
                 Debug.LogError($"[PoolManager] Warmup failed: {ex.Message}\n{ex.StackTrace}");
                 IsWarmedUp = true; // Mark as complete anyway to prevent waiting forever
+                WarmUpSucceeded = false;
                 OnWarmUpComplete?.Invoke();
             }
         }

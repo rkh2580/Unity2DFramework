@@ -8,8 +8,9 @@ namespace KH.Framework2D.Services.Input
     /// <summary>
     /// Input management service supporting both legacy and new Input System.
     /// 
-    /// [FIXED] Escape key handling - now properly separated between Pause and Cancel
-    /// based on current input mode (Gameplay vs UI).
+    /// [FIXED v2] 
+    /// - Escape key handling - context-aware based on InputMode
+    /// - SetInputMode now properly restores InputEnabled when switching to Gameplay
     /// </summary>
     public class InputManager : MonoBehaviour, IInputService
     {
@@ -44,7 +45,7 @@ namespace KH.Framework2D.Services.Input
         // State
         public bool InputEnabled { get; private set; } = true;
         
-        // [NEW] Current input mode for context-aware input handling
+        // Current input mode for context-aware input handling
         public Define.InputMode CurrentMode { get; private set; } = Define.InputMode.Gameplay;
         
         // Events
@@ -273,8 +274,7 @@ namespace KH.Framework2D.Services.Input
                 OnDash?.Invoke();
             }
             
-            // [FIXED] Escape handling - context-aware
-            // Escape triggers Pause in Gameplay mode, Cancel in UI mode
+            // Escape handling - context-aware
             if (UnityEngine.Input.GetKeyDown(KeyCode.Escape))
             {
                 HandleEscapeKey();
@@ -303,7 +303,7 @@ namespace KH.Framework2D.Services.Input
         }
         
         /// <summary>
-        /// [NEW] Context-aware Escape key handling.
+        /// Context-aware Escape key handling.
         /// Prevents duplicate Pause/Cancel events.
         /// </summary>
         private void HandleEscapeKey()
@@ -347,10 +347,12 @@ namespace KH.Framework2D.Services.Input
         }
         
         /// <summary>
-        /// [NEW] Set input mode for context-aware handling.
+        /// [FIXED v2] Set input mode for context-aware handling.
+        /// Now properly restores InputEnabled when switching to Gameplay mode.
         /// </summary>
         public void SetInputMode(Define.InputMode mode)
         {
+            var previousMode = CurrentMode;
             CurrentMode = mode;
             
             switch (mode)
@@ -358,13 +360,28 @@ namespace KH.Framework2D.Services.Input
                 case Define.InputMode.UI:
                     SwitchToUI();
                     break;
+                    
                 case Define.InputMode.Gameplay:
                     SwitchToGameplay();
+                    // [FIXED] Ensure input is enabled when returning to gameplay
+                    if (!InputEnabled)
+                    {
+                        EnableInput();
+                    }
                     break;
+                    
+                case Define.InputMode.Cinematic:
+                    // Cinematic mode: UI navigation works, but gameplay actions disabled
+                    _inputActions?.FindActionMap("Gameplay")?.Disable();
+                    _inputActions?.FindActionMap("UI")?.Enable();
+                    break;
+                    
                 case Define.InputMode.Disabled:
                     DisableInput();
                     break;
             }
+            
+            Debug.Log($"[InputManager] Mode changed: {previousMode} -> {mode}");
         }
         
         /// <summary>
@@ -412,7 +429,7 @@ namespace KH.Framework2D.Services.Input
         }
         
         /// <summary>
-        /// [NEW] Clear all event subscriptions.
+        /// Clear all event subscriptions.
         /// Call when scene changes or manager is reset.
         /// </summary>
         public void Clear()
