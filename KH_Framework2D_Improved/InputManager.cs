@@ -1,11 +1,15 @@
 using System;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using KH.Framework2D.Services;
 
 namespace KH.Framework2D.Services.Input
 {
     /// <summary>
     /// Input management service supporting both legacy and new Input System.
+    /// 
+    /// [FIXED] Escape key handling - now properly separated between Pause and Cancel
+    /// based on current input mode (Gameplay vs UI).
     /// </summary>
     public class InputManager : MonoBehaviour, IInputService
     {
@@ -39,6 +43,9 @@ namespace KH.Framework2D.Services.Input
         
         // State
         public bool InputEnabled { get; private set; } = true;
+        
+        // [NEW] Current input mode for context-aware input handling
+        public Define.InputMode CurrentMode { get; private set; } = Define.InputMode.Gameplay;
         
         // Events
         public event Action OnAttack;
@@ -91,8 +98,8 @@ namespace KH.Framework2D.Services.Input
 
         private void OnDestroy()
         {
-            // Prevent callback leaks if this manager is destroyed/recreated.
             UnsubscribeFromActions();
+            Clear();
         }
         
         private void Update()
@@ -108,13 +115,11 @@ namespace KH.Framework2D.Services.Input
                 UpdateLegacyInput();
             }
             
-            // Mouse (works with both systems)
             MousePosition = UnityEngine.Input.mousePosition;
         }
         
         private void LateUpdate()
         {
-            // Reset single-frame inputs
             ResetFrameInputs();
         }
         
@@ -145,7 +150,6 @@ namespace KH.Framework2D.Services.Input
                 _confirmAction = uiMap.FindAction("Confirm");
             }
             
-            // Subscribe to performed events
             SubscribeToActions();
         }
         
@@ -269,11 +273,11 @@ namespace KH.Framework2D.Services.Input
                 OnDash?.Invoke();
             }
             
-            // Pause
+            // [FIXED] Escape handling - context-aware
+            // Escape triggers Pause in Gameplay mode, Cancel in UI mode
             if (UnityEngine.Input.GetKeyDown(KeyCode.Escape))
             {
-                PausePressed = true;
-                OnPause?.Invoke();
+                HandleEscapeKey();
             }
             
             // Inventory
@@ -283,17 +287,14 @@ namespace KH.Framework2D.Services.Input
                 OnInventory?.Invoke();
             }
             
-            // Cancel/Confirm
-            if (UnityEngine.Input.GetKeyDown(KeyCode.Escape))
+            // Confirm (Enter/Space in UI context only)
+            if (CurrentMode == Define.InputMode.UI)
             {
-                CancelPressed = true;
-                OnCancel?.Invoke();
-            }
-            
-            if (UnityEngine.Input.GetKeyDown(KeyCode.Return) || UnityEngine.Input.GetKeyDown(KeyCode.Space))
-            {
-                ConfirmPressed = true;
-                OnConfirm?.Invoke();
+                if (UnityEngine.Input.GetKeyDown(KeyCode.Return) || UnityEngine.Input.GetKeyDown(KeyCode.Space))
+                {
+                    ConfirmPressed = true;
+                    OnConfirm?.Invoke();
+                }
             }
             
             // Mouse buttons
@@ -301,22 +302,43 @@ namespace KH.Framework2D.Services.Input
             MouseRightPressed = UnityEngine.Input.GetMouseButtonDown(1);
         }
         
+        /// <summary>
+        /// [NEW] Context-aware Escape key handling.
+        /// Prevents duplicate Pause/Cancel events.
+        /// </summary>
+        private void HandleEscapeKey()
+        {
+            switch (CurrentMode)
+            {
+                case Define.InputMode.Gameplay:
+                    // In gameplay, Escape opens pause menu
+                    PausePressed = true;
+                    OnPause?.Invoke();
+                    break;
+                    
+                case Define.InputMode.UI:
+                    // In UI, Escape cancels/closes
+                    CancelPressed = true;
+                    OnCancel?.Invoke();
+                    break;
+                    
+                case Define.InputMode.Cinematic:
+                case Define.InputMode.Disabled:
+                    // No action
+                    break;
+            }
+        }
+        
         #endregion
         
         #region Control
         
-        /// <summary>
-        /// Enable all input.
-        /// </summary>
         public void EnableInput()
         {
             InputEnabled = true;
             _inputActions?.Enable();
         }
         
-        /// <summary>
-        /// Disable all input.
-        /// </summary>
         public void DisableInput()
         {
             InputEnabled = false;
@@ -325,10 +347,32 @@ namespace KH.Framework2D.Services.Input
         }
         
         /// <summary>
+        /// [NEW] Set input mode for context-aware handling.
+        /// </summary>
+        public void SetInputMode(Define.InputMode mode)
+        {
+            CurrentMode = mode;
+            
+            switch (mode)
+            {
+                case Define.InputMode.UI:
+                    SwitchToUI();
+                    break;
+                case Define.InputMode.Gameplay:
+                    SwitchToGameplay();
+                    break;
+                case Define.InputMode.Disabled:
+                    DisableInput();
+                    break;
+            }
+        }
+        
+        /// <summary>
         /// Switch to UI input mode.
         /// </summary>
         public void SwitchToUI()
         {
+            CurrentMode = Define.InputMode.UI;
             _inputActions?.FindActionMap("Gameplay")?.Disable();
             _inputActions?.FindActionMap("UI")?.Enable();
         }
@@ -338,6 +382,7 @@ namespace KH.Framework2D.Services.Input
         /// </summary>
         public void SwitchToGameplay()
         {
+            CurrentMode = Define.InputMode.Gameplay;
             _inputActions?.FindActionMap("UI")?.Disable();
             _inputActions?.FindActionMap("Gameplay")?.Enable();
         }
@@ -366,13 +411,30 @@ namespace KH.Framework2D.Services.Input
             ResetFrameInputs();
         }
         
+        /// <summary>
+        /// [NEW] Clear all event subscriptions.
+        /// Call when scene changes or manager is reset.
+        /// </summary>
+        public void Clear()
+        {
+            OnAttack = null;
+            OnSkill = null;
+            OnUltimate = null;
+            OnInteract = null;
+            OnJump = null;
+            OnDash = null;
+            OnPause = null;
+            OnInventory = null;
+            OnCancel = null;
+            OnConfirm = null;
+            
+            ResetAllInputs();
+        }
+        
         #endregion
         
         #region Utility
         
-        /// <summary>
-        /// Get mouse position in world space (2D).
-        /// </summary>
         public Vector2 GetMouseWorldPosition2D()
         {
             var camera = Camera.main;
@@ -383,9 +445,6 @@ namespace KH.Framework2D.Services.Input
             return Vector2.zero;
         }
         
-        /// <summary>
-        /// Get mouse position in world space (3D).
-        /// </summary>
         public Vector3 GetMouseWorldPosition3D(float zDepth = 10f)
         {
             var camera = Camera.main;
@@ -398,9 +457,6 @@ namespace KH.Framework2D.Services.Input
             return Vector3.zero;
         }
         
-        /// <summary>
-        /// Get direction from player to mouse (2D).
-        /// </summary>
         public Vector2 GetDirectionToMouse(Vector2 fromPosition)
         {
             return (GetMouseWorldPosition2D() - fromPosition).normalized;

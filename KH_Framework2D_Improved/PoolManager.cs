@@ -29,6 +29,8 @@ namespace KH.Framework2D.Pool
     
     /// <summary>
     /// Central manager for multiple object pools.
+    /// 
+    /// [FIXED] async void Start replaced with UniTaskVoid + proper error handling.
     /// </summary>
     public class PoolManager : MonoBehaviour
     {
@@ -37,6 +39,16 @@ namespace KH.Framework2D.Pool
         
         private readonly Dictionary<string, ObjectPool<Transform>> _pools = new();
         private Transform _poolRoot;
+        
+        /// <summary>
+        /// Event fired when pool warmup is complete.
+        /// </summary>
+        public event Action OnWarmUpComplete;
+        
+        /// <summary>
+        /// Is warmup complete?
+        /// </summary>
+        public bool IsWarmedUp { get; private set; }
         
         private void Awake()
         {
@@ -52,11 +64,35 @@ namespace KH.Framework2D.Pool
             }
         }
         
-        private async void Start()
+        /// <summary>
+        /// [FIXED] Using UniTaskVoid instead of async void for proper exception propagation.
+        /// </summary>
+        private void Start()
         {
             if (_warmUpOnStart)
             {
+                WarmUpOnStartAsync().Forget();
+            }
+        }
+        
+        /// <summary>
+        /// Async warmup with proper error handling.
+        /// </summary>
+        private async UniTaskVoid WarmUpOnStartAsync()
+        {
+            try
+            {
                 await WarmUpAllAsync();
+                IsWarmedUp = true;
+                OnWarmUpComplete?.Invoke();
+                Debug.Log("[PoolManager] Warmup complete.");
+            }
+            catch (Exception ex)
+            {
+                // Log error but don't crash - pools can still work without warmup
+                Debug.LogError($"[PoolManager] Warmup failed: {ex.Message}\n{ex.StackTrace}");
+                IsWarmedUp = true; // Mark as complete anyway to prevent waiting forever
+                OnWarmUpComplete?.Invoke();
             }
         }
         
@@ -118,7 +154,6 @@ namespace KH.Framework2D.Pool
             var tr = pool.Spawn();
             if (tr == null) return null;
 
-            // Tag pooled handle with key for debugging / analytics.
             var handle = tr.GetComponent<PooledHandle>();
             if (handle != null)
                 handle.SetPoolKey(key);
@@ -181,8 +216,7 @@ namespace KH.Framework2D.Pool
         }
 
         /// <summary>
-        /// Return an object to its owning pool via <see cref="PooledHandle"/>.
-        /// Prefer this overload in gameplay code to avoid tracking pool keys.
+        /// Return an object to its owning pool via PooledHandle.
         /// </summary>
         public bool Despawn(GameObject obj)
         {
@@ -190,12 +224,13 @@ namespace KH.Framework2D.Pool
             if (obj.TryGetComponent<PooledHandle>(out var handle))
                 return handle.TryReturnToPool();
 
-            // Not a pooled object.
             obj.SetActive(false);
             return false;
         }
 
-        /// <summary>Delayed return using <see cref="PooledHandle"/>.</summary>
+        /// <summary>
+        /// Delayed return using PooledHandle.
+        /// </summary>
         public async UniTask<bool> DespawnDelayed(GameObject obj, float delay)
         {
             if (obj == null) return false;
@@ -266,7 +301,6 @@ namespace KH.Framework2D.Pool
         /// <summary>
         /// Get pool statistics.
         /// </summary>
-        /// <returns>Tuple of (activeCount, pooledCount, maxSize)</returns>
         public (int active, int pooled, int max) GetPoolInfo(string key)
         {
             if (_pools.TryGetValue(key, out var pool))

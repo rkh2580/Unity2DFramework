@@ -8,6 +8,8 @@ namespace KH.Framework2D.Data.Pipeline
     /// <summary>
     /// Data service implementation using XML files from Resources.
     /// 
+    /// [IMPROVED] Reduced reflection usage via explicit loader registration.
+    /// 
     /// Usage:
     /// 1. Place XML files in Resources/Data/ folder
     /// 2. Register data types with RegisterDataType<T>()
@@ -17,7 +19,7 @@ namespace KH.Framework2D.Data.Pipeline
     public class DataService : IDataService
     {
         private readonly Dictionary<Type, object> _containers = new();
-        private readonly Dictionary<Type, DataTypeConfig> _configs = new();
+        private readonly Dictionary<Type, IDataLoader> _loaders = new();
         
         private bool _isInitialized;
         
@@ -27,13 +29,53 @@ namespace KH.Framework2D.Data.Pipeline
         public event Action<float> OnLoadProgress;
         
         /// <summary>
-        /// Configuration for a data type.
+        /// [NEW] Generic data loader interface - eliminates runtime reflection.
         /// </summary>
-        private class DataTypeConfig
+        private interface IDataLoader
         {
-            public string ResourcePath;     // Path in Resources folder (without extension)
-            public string RowElementName;   // XML row element name
-            public Type DataType;
+            UniTask LoadAsync(DataService service);
+        }
+        
+        /// <summary>
+        /// [NEW] Typed data loader - compile-time type safety.
+        /// </summary>
+        private class DataLoader<T> : IDataLoader where T : class, IGameData, new()
+        {
+            private readonly string _resourcePath;
+            private readonly string _rowElementName;
+            
+            public DataLoader(string resourcePath, string rowElementName)
+            {
+                _resourcePath = resourcePath;
+                _rowElementName = rowElementName;
+            }
+            
+            public async UniTask LoadAsync(DataService service)
+            {
+                // Load XML from Resources
+                var textAsset = Resources.Load<TextAsset>(_resourcePath);
+                
+                if (textAsset == null)
+                {
+                    Debug.LogError($"[DataService] Failed to load XML: Resources/{_resourcePath}.xml");
+                    return;
+                }
+                
+                // Parse using generic method - NO REFLECTION
+                var parsedData = XmlDataParser.Parse<T>(textAsset.text, _rowElementName);
+                
+                // Get or create container
+                var container = service.GetOrCreateContainer<T>();
+                container.AddRange(parsedData);
+                
+                // Unload TextAsset to free memory
+                Resources.UnloadAsset(textAsset);
+                
+                // Yield to prevent frame spike
+                await UniTask.Yield();
+                
+                Debug.Log($"[DataService] Loaded {typeof(T).Name} from {_resourcePath} ({parsedData.Count} entries)");
+            }
         }
         
         /// <summary>
@@ -48,19 +90,15 @@ namespace KH.Framework2D.Data.Pipeline
         {
             var type = typeof(T);
             
-            if (_configs.ContainsKey(type))
+            if (_loaders.ContainsKey(type))
             {
                 Debug.LogWarning($"[DataService] Data type {type.Name} already registered. Overwriting.");
             }
             
-            _configs[type] = new DataTypeConfig
-            {
-                ResourcePath = resourcePath,
-                RowElementName = rowElementName,
-                DataType = type
-            };
+            // Create typed loader - no reflection needed at load time
+            _loaders[type] = new DataLoader<T>(resourcePath, rowElementName);
             
-            // Create empty container
+            // Pre-create container
             _containers[type] = new DataContainer<T>();
         }
         
@@ -77,12 +115,20 @@ namespace KH.Framework2D.Data.Pipeline
             
             Debug.Log("[DataService] Initializing...");
             
-            int total = _configs.Count;
+            int total = _loaders.Count;
             int loaded = 0;
             
-            foreach (var kvp in _configs)
+            foreach (var kvp in _loaders)
             {
-                await LoadDataTypeAsync(kvp.Key, kvp.Value);
+                try
+                {
+                    await kvp.Value.LoadAsync(this);
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogError($"[DataService] Failed to load {kvp.Key.Name}: {ex.Message}");
+                }
+                
                 loaded++;
                 OnLoadProgress?.Invoke((float)loaded / total);
             }
@@ -91,43 +137,6 @@ namespace KH.Framework2D.Data.Pipeline
             OnDataLoaded?.Invoke();
             
             Debug.Log($"[DataService] Initialized. Loaded {total} data types.");
-        }
-        
-        /// <summary>
-        /// Load a single data type from XML.
-        /// </summary>
-        private async UniTask LoadDataTypeAsync(Type dataType, DataTypeConfig config)
-        {
-            // Load XML from Resources
-            var textAsset = Resources.Load<TextAsset>(config.ResourcePath);
-            
-            if (textAsset == null)
-            {
-                Debug.LogError($"[DataService] Failed to load XML: Resources/{config.ResourcePath}.xml");
-                return;
-            }
-            
-            // Parse using reflection to call generic method
-            var parseMethod = typeof(XmlDataParser)
-                .GetMethod(nameof(XmlDataParser.Parse))
-                .MakeGenericMethod(dataType);
-            
-            var parsedData = parseMethod.Invoke(null, new object[] { textAsset.text, config.RowElementName });
-            
-            // Get container and add data
-            var container = _containers[dataType];
-            var addRangeMethod = container.GetType()
-                .GetMethod(nameof(DataContainer<IGameData>.AddRange));
-            
-            addRangeMethod.Invoke(container, new[] { parsedData });
-            
-            // Unload TextAsset to free memory
-            Resources.UnloadAsset(textAsset);
-            
-            // Yield to prevent frame spike
-            await UniTask.Yield();
-            
-            Debug.Log($"[DataService] Loaded {dataType.Name} from {config.ResourcePath}");
         }
         
         /// <summary>
@@ -193,11 +202,11 @@ namespace KH.Framework2D.Data.Pipeline
         /// <summary>
         /// Reload specific data type.
         /// </summary>
-        public async UniTask ReloadAsync<T>() where T : class, IGameData
+        public async UniTask ReloadAsync<T>() where T : class, IGameData, new()
         {
             var type = typeof(T);
             
-            if (!_configs.TryGetValue(type, out var config))
+            if (!_loaders.TryGetValue(type, out var loader))
             {
                 Debug.LogError($"[DataService] Data type {type.Name} not registered.");
                 return;
@@ -208,7 +217,7 @@ namespace KH.Framework2D.Data.Pipeline
             container?.Clear();
             
             // Reload
-            await LoadDataTypeAsync(type, config);
+            await loader.LoadAsync(this);
             
             Debug.Log($"[DataService] Reloaded {type.Name}");
         }
@@ -227,6 +236,39 @@ namespace KH.Framework2D.Data.Pipeline
             
             Debug.LogError($"[DataService] Data type {type.Name} not registered. Call RegisterDataType first.");
             return null;
+        }
+        
+        /// <summary>
+        /// Get or create container for a data type.
+        /// </summary>
+        internal DataContainer<T> GetOrCreateContainer<T>() where T : class, IGameData, new()
+        {
+            var type = typeof(T);
+            
+            if (!_containers.TryGetValue(type, out var container))
+            {
+                container = new DataContainer<T>();
+                _containers[type] = container;
+            }
+            
+            return container as DataContainer<T>;
+        }
+    }
+    
+    /// <summary>
+    /// [NEW] Fluent API for DataService configuration.
+    /// More readable than direct RegisterDataType calls.
+    /// </summary>
+    public static class DataServiceExtensions
+    {
+        /// <summary>
+        /// Register multiple data types fluently.
+        /// </summary>
+        public static DataService WithData<T>(this DataService service, string resourcePath, string rowElement = "Row")
+            where T : class, IGameData, new()
+        {
+            service.RegisterDataType<T>(resourcePath, rowElement);
+            return service;
         }
     }
 }
